@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>瀏覽器桌面提醒鬧鐘 (進階版)</title>
+    <!-- 載入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 載入 React 與 ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- 載入 Babel 用於解析 JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+    </style>
+</head>
+
+<body class="bg-slate-100">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // --- 圖示組件 ---
+        const Clock = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+        );
+        const Bell = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>
+        );
+        const CheckCircle2 = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" /><path d="m9 12 2 2 4-4" /></svg>
+        );
+        const AlertCircle = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></svg>
+        );
+        const Plus = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M5 12h14" /><path d="M12 5v14" /></svg>
+        );
+        const Trash2 = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /><line x1="10" x2="10" y1="11" y2="17" /><line x1="14" x2="14" y1="11" y2="17" /></svg>
+        );
+        const Repeat = ({ className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" /></svg>
+        );
+
+        // --- 主程式邏輯 ---
+        const RemindersApp = () => {
+            const [reminders, setReminders] = useState([]);
+            const [title, setTitle] = useState('');
+            const [permission, setPermission] = useState(Notification.permission);
+            const [currentTime, setCurrentTime] = useState(Date.now());
+
+            // 新增：重複功能相關狀態
+            const [isRepeating, setIsRepeating] = useState(false);
+            const [targetTime, setTargetTime] = useState(''); // 單次模式用 (完整日期時間)
+            const [startTime, setStartTime] = useState(''); // 開始時間
+            const [endTime, setEndTime] = useState(''); // 結束時間（選填）
+            const [repeatTime, setRepeatTime] = useState(''); // 重複模式用 (僅時間 HH:mm)
+            const [repeatDays, setRepeatDays] = useState([]); // [0, 1, 2...] (0=週日)
+
+            // 讀取資料
+            useEffect(() => {
+                const savedData = localStorage.getItem('my-browser-reminders-v2');
+                if (savedData) {
+                    try {
+                        setReminders(JSON.parse(savedData));
+                    } catch (e) { console.error("讀取失敗", e); }
+                }
+
+                // 首次載入時檢查 protocol
+                if (window.location.protocol === 'file:') {
+                    console.warn('%c[啟動警告] 目前使用 "file://" 協定運行本地檔案，這可能會導致桌面通知功能被瀏覽器安全政策阻擋。請改用本地伺服器 (http://) 或將檔案拖曳到瀏覽器分頁列來運行，以確保通知正常彈出。', 'color: orange; font-size: 14px; font-weight: bold;');
+                }
+
+            }, []);
+
+            // 儲存資料
+            useEffect(() => {
+                localStorage.setItem('my-browser-reminders-v2', JSON.stringify(reminders));
+            }, [reminders]);
+
+            // 請求權限
+            const requestPermission = async () => {
+                // 如果已經有權限，不需要再次請求，但確保狀態正確
+                if (Notification.permission === 'granted') {
+                    setPermission('granted');
+                    new Notification('測試通知', { body: '桌面通知功能已啟用！' });
+                    return;
+                }
+
+                const result = await Notification.requestPermission();
+                setPermission(result);
+                if (result === 'granted') {
+                    new Notification('測試通知', { body: '桌面通知功能已啟用！' });
+                } else if (result === 'denied') {
+                    console.error("使用者已拒絕通知權限。");
+                }
+            };
+
+            // 發送通知 (已加入除錯日誌)
+            const sendNotification = (msg, taskTitle) => {
+                if (Notification.permission === 'granted') {
+                    console.log(`%c[通知已觸發] ${msg} - 事項: ${taskTitle}`, 'color: green; font-weight: bold;');
+                    new Notification(msg, {
+                        body: `事項：${taskTitle}`,
+                        requireInteraction: true
+                    });
+                } else {
+                    console.log(`%c[通知失敗] 權限非 granted，嘗試發送: ${msg} - 事項: ${taskTitle}`, 'color: red; font-weight: bold;');
+                    // 為了確保使用者知道時間邏輯是正確的，可以在 Console 顯示一個模擬通知
+                    if (window.location.protocol === 'file:') {
+                        console.log(`%c[模擬通知] 時間已到，但通知被阻擋。請檢查 Console 確認時間邏輯正常。`, 'color: #3b82f6; background-color: #bfdbfe; padding: 5px; border-radius: 4px;');
+                    }
+                }
+            };
+
+            // --- 核心計時器 ---
+            useEffect(() => {
+                const timer = setInterval(() => {
+                    const now = Date.now();
+                    const todayDateString = new Date().toDateString(); // 例如 "Fri Nov 19 2025"
+                    const currentDay = new Date().getDay(); // 0-6 (0=週日)
+
+                    setCurrentTime(now);
+
+                    setReminders(prevReminders => prevReminders.map(task => {
+                        // 1. 處理「重複事項」的日期邏輯
+                        if (task.type === 'weekly') {
+                            // 檢查：如果是新的一天，重置該任務的通知狀態
+                            if (task.lastResetDate !== todayDateString) {
+                                return {
+                                    ...task,
+                                    lastResetDate: todayDateString,
+                                    notified3Min: false,
+                                    notified1Min: false,
+                                    notified0Min: false,
+                                    completed: false // 重複事項每天重置完成狀態
+                                };
+                            }
+
+                            // 檢查：今天是否在設定的星期幾內
+                            if (task.repeatDays.includes(currentDay)) {
+                                // 組合今天的日期 + 設定的時間
+                                const [h, m] = task.time.split(':');
+                                const t = new Date();
+                                // 檢查時間格式是否正確，防止無效日期導致 NaN
+                                if (isNaN(parseInt(h)) || isNaN(parseInt(m))) {
+                                    console.error(`[錯誤] 重複事項時間格式無效: ${task.time}`);
+                                    return task;
+                                }
+                                t.setHours(h, m, 0, 0);
+                                const targetTimestamp = t.getTime();
+                                const diff = targetTimestamp - now;
+
+                                let updates = {};
+                                let shouldNotify = false;
+                                let notifyMsg = "";
+
+                                // 剩餘 1~3 分鐘
+                                if (diff <= 180000 && diff > 60000 && !task.notified3Min) {
+                                    notifyMsg = `【剩餘 3 分鐘】準備好了嗎？`;
+                                    updates.notified3Min = true;
+                                    shouldNotify = true;
+                                }
+                                // 剩餘 0~1 分鐘
+                                else if (diff <= 60000 && diff > 0 && !task.notified1Min) {
+                                    notifyMsg = `【剩餘 1 分鐘】即將到期！`;
+                                    updates.notified1Min = true;
+                                    shouldNotify = true;
+                                }
+                                // 時間到
+                                else if (diff <= 0 && !task.notified0Min) {
+                                    const isTooLateForRepeating = diff < -1800000;
+                                    if (!isTooLateForRepeating) {
+                                        notifyMsg = `【時間到】請執行事項！`;
+                                        shouldNotify = true;
+                                    }
+                                    updates.notified0Min = true;
+                                    updates.completed = true;
+                                }
+
+                                if (shouldNotify) {
+                                    sendNotification(notifyMsg, task.title);
+                                    return { ...task, ...updates };
+                                }
+                                if (Object.keys(updates).length > 0) {
+                                    return { ...task, ...updates };
+                                }
+                            }
+                            return task;
+                        }
+
+                        // 2. 處理「單次事項」- 支援開始/結束時間
+                        if (task.type === 'once') {
+                            if (task.completed) return task;
+
+                            let updates = {};
+
+                            // 處理開始時間通知
+                            const startTimestamp = new Date(task.startTime).getTime();
+                            const diffStart = startTimestamp - now;
+
+                            if (diffStart <= 180000 && diffStart > 60000 && !task.notifiedStart3Min) {
+                                sendNotification(`【開始前 3 分鐘】準備好了嗎？`, task.title);
+                                updates.notifiedStart3Min = true;
+                            }
+                            else if (diffStart <= 60000 && diffStart > 0 && !task.notifiedStart1Min) {
+                                sendNotification(`【開始前 1 分鐘】即將開始！`, task.title);
+                                updates.notifiedStart1Min = true;
+                            }
+                            else if (diffStart <= 0 && !task.notifiedStart0Min) {
+                                sendNotification(`【開始時間到】請開始執行！`, task.title);
+                                updates.notifiedStart0Min = true;
+                            }
+
+                            // 處理結束時間通知（若有設定）
+                            if (task.endTime) {
+                                const endTimestamp = new Date(task.endTime).getTime();
+                                const diffEnd = endTimestamp - now;
+
+                                if (diffEnd <= 180000 && diffEnd > 60000 && !task.notifiedEnd3Min) {
+                                    sendNotification(`【結束前 3 分鐘】即將結束！`, task.title);
+                                    updates.notifiedEnd3Min = true;
+                                }
+                                else if (diffEnd <= 60000 && diffEnd > 0 && !task.notifiedEnd1Min) {
+                                    sendNotification(`【結束前 1 分鐘】準備收尾！`, task.title);
+                                    updates.notifiedEnd1Min = true;
+                                }
+                                else if (diffEnd <= 0 && !task.notifiedEnd0Min) {
+                                    sendNotification(`【結束時間到】事項已結束！`, task.title);
+                                    updates.notifiedEnd0Min = true;
+                                    updates.completed = true; // 結束時間到才標記完成
+                                }
+                            } else {
+                                // 若沒有結束時間，開始時間到就標記完成
+                                if (diffStart <= 0 && !task.completed) {
+                                    updates.completed = true;
+                                }
+                            }
+
+                            if (Object.keys(updates).length > 0) {
+                                return { ...task, ...updates };
+                            }
+                            return task;
+                        }
+
+                        return task;
+                    }));
+
+                }, 1000);
+
+                return () => clearInterval(timer);
+            }, []);
+
+            // 新增事項
+            const handleAdd = (e) => {
+                e.preventDefault();
+                if (!title) return;
+
+                let newTask = {
+                    id: Date.now(),
+                    title,
+                    notified3Min: false,
+                    notified1Min: false,
+                    notified0Min: false,
+                    completed: false,
+                    lastResetDate: new Date().toDateString() // 初始化重置日期
+                };
+
+                if (isRepeating) {
+                    if (!repeatTime || repeatDays.length === 0) {
+                        alert("請設定時間並至少選擇一天星期！");
+                        return;
+                    }
+
+                    // A方案邏輯：檢查今天的時間是否已經太近
+                    const now = new Date();
+                    const [h, m] = repeatTime.split(':');
+                    const todayTarget = new Date();
+                    todayTarget.setHours(h, m, 0, 0);
+                    const diff = todayTarget.getTime() - now.getTime();
+                    const isToday = repeatDays.includes(now.getDay());
+
+                    newTask = {
+                        ...newTask,
+                        type: 'weekly',
+                        time: repeatTime, // "HH:mm"
+                        repeatDays: repeatDays,
+                        // 如果今天是執行的日子，且時間 < 3分鐘，預先標記避免重複跳通知
+                        notified3Min: isToday && diff <= 180000,
+                        notified1Min: isToday && diff <= 60000,
+                    };
+
+                } else {
+                    if (!startTime) return;
+                    const startTimestamp = new Date(startTime).getTime();
+                    const now = Date.now();
+                    const diffStart = startTimestamp - now;
+
+                    if (diffStart < 0) {
+                        alert("請選擇未來的開始時間！");
+                        return;
+                    }
+
+                    // 檢查結束時間是否有效
+                    let hasEndTime = false;
+                    let diffEnd = 0;
+                    if (endTime) {
+                        const endTimestamp = new Date(endTime).getTime();
+                        diffEnd = endTimestamp - now;
+                        if (endTimestamp <= startTimestamp) {
+                            alert("結束時間必須在開始時間之後！");
+                            return;
+                        }
+                        hasEndTime = true;
+                    }
+
+                    newTask = {
+                        ...newTask,
+                        type: 'once',
+                        startTime: startTime,
+                        endTime: hasEndTime ? endTime : null,
+                        // 開始時間通知狀態
+                        notifiedStart3Min: diffStart <= 180000,
+                        notifiedStart1Min: diffStart <= 60000,
+                        notifiedStart0Min: false,
+                        // 結束時間通知狀態
+                        notifiedEnd3Min: hasEndTime && diffEnd <= 180000,
+                        notifiedEnd1Min: hasEndTime && diffEnd <= 60000,
+                        notifiedEnd0Min: false,
+                    };
+                }
+
+                setReminders([...reminders, newTask].sort((a, b) => a.id - b.id));
+
+                // 重置表單
+                setTitle('');
+                // 保留模式選擇，方便連續輸入，但清空內容
+                if (!isRepeating) {
+                    setStartTime('');
+                    setEndTime('');
+                }
+                // 重複模式通常不需清空時間，方便設定下一個
+            };
+
+            const toggleDay = (dayIndex) => {
+                if (repeatDays.includes(dayIndex)) {
+                    setRepeatDays(repeatDays.filter(d => d !== dayIndex));
+                } else {
+                    setRepeatDays([...repeatDays, dayIndex].sort());
+                }
+            };
+
+            const handleDelete = (id) => {
+                setReminders(reminders.filter(r => r.id !== id));
+            };
+
+            const getDisplayText = (task) => {
+                if (task.type === 'weekly') {
+                    const weekMap = ['日', '一', '二', '三', '四', '五', '六'];
+                    const daysStr = task.repeatDays.map(d => weekMap[d]).join(', ');
+
+                    // 計算倒數
+                    const currentDay = new Date().getDay();
+                    const [h, m] = task.time.split(':');
+                    const now = new Date();
+                    const target = new Date();
+                    target.setHours(h, m, 0, 0);
+
+                    // 如果今天不是執行日，或今天是但時間已過且已完成
+                    if (!task.repeatDays.includes(currentDay)) {
+                        return { time: `每週 ${daysStr} ${task.time}`, countdown: "非今日執行", color: "text-slate-400" };
+                    }
+
+                    const diff = target.getTime() - now.getTime();
+                    if (diff <= 0) return { time: `每週 ${daysStr} ${task.time}`, countdown: "本日已結束", color: "text-slate-400" };
+
+                    return {
+                        time: `每週 ${daysStr} ${task.time}`,
+                        countdown: formatCountdown(diff),
+                        color: diff < 180000 ? "text-red-500" : "text-blue-600",
+                        isUrgent: diff < 180000
+                    };
+                } else {
+                    // 單次事項 - 顯示開始/結束時間
+                    const startTimestamp = new Date(task.startTime).getTime();
+                    const diffStart = startTimestamp - currentTime;
+
+                    let timeDisplay = `開始: ${new Date(task.startTime).toLocaleString()}`;
+                    if (task.endTime) {
+                        timeDisplay += ` → 結束: ${new Date(task.endTime).toLocaleString()}`;
+                    }
+
+                    // 計算當前應該顯示的倒數
+                    if (diffStart > 0) {
+                        // 尚未開始
+                        return {
+                            time: timeDisplay,
+                            countdown: `開始前 ${formatCountdown(diffStart)}`,
+                            color: diffStart < 180000 ? "text-red-500" : "text-blue-600",
+                            isUrgent: diffStart < 180000,
+                            phase: 'before-start'
+                        };
+                    } else if (task.endTime) {
+                        // 已開始，計算結束時間
+                        const endTimestamp = new Date(task.endTime).getTime();
+                        const diffEnd = endTimestamp - currentTime;
+
+                        if (diffEnd > 0) {
+                            return {
+                                time: timeDisplay,
+                                countdown: `結束前 ${formatCountdown(diffEnd)}`,
+                                color: diffEnd < 180000 ? "text-orange-500" : "text-green-600",
+                                isUrgent: diffEnd < 180000,
+                                phase: 'in-progress'
+                            };
+                        } else {
+                            return { time: timeDisplay, countdown: "已結束", color: "text-slate-400", phase: 'ended' };
+                        }
+                    } else {
+                        return { time: timeDisplay, countdown: "已到期", color: "text-slate-400", phase: 'ended' };
+                    }
+                }
+            };
+
+            const formatCountdown = (diff) => {
+                const hours = Math.floor(diff / (1000 * 60 * 60));
+                const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+                if (hours > 0) return `${hours}時 ${minutes}分 ${seconds}秒`;
+                return `${minutes}分 ${seconds}秒`;
+            };
+
+            const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+
+            return (
+                <div className="min-h-screen bg-slate-100 text-slate-800 p-4 md:p-8 font-sans">
+                    <div className="max-w-3xl mx-auto">
+
+                        {/* Header */}
+                        <div className="flex items-center justify-between mb-8">
+                            <h1 className="text-2xl md:text-3xl font-bold text-slate-900 flex items-center gap-3">
+                                <Clock className="w-8 h-8 text-blue-600" />
+                                瀏覽器鬧鐘 <span className="text-sm bg-blue-100 text-blue-600 px-2 py-1 rounded">進階版</span>
+                            </h1>
+
+                            {permission !== 'granted' ? (
+                                <button onClick={requestPermission} className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg shadow animate-pulse">
+                                    <Bell className="w-4 h-4" /> 啟用通知
+                                </button>
+                            ) : (
+                                <span className="flex items-center gap-2 text-green-600 bg-green-100 px-3 py-1 rounded-full text-sm font-medium">
+                                    <CheckCircle2 className="w-4 h-4" /> 通知已啟用
+                                </span>
+                            )}
+                        </div>
+
+                        {/* 輸入區 */}
+                        <div className="bg-white p-6 rounded-xl shadow-md mb-8 border border-slate-200">
+                            <div className="flex gap-4 mb-4 border-b border-slate-100 pb-4">
+                                <button
+                                    onClick={() => setIsRepeating(false)}
+                                    className={`flex-1 py-2 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${!isRepeating ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                                >
+                                    <Clock className="w-4 h-4" /> 單次提醒
+                                </button>
+                                <button
+                                    onClick={() => setIsRepeating(true)}
+                                    className={`flex-1 py-2 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${isRepeating ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                                >
+                                    <Repeat className="w-4 h-4" /> 每週重複
+                                </button>
+                            </div>
+
+                            <form onSubmit={handleAdd} className="flex flex-col gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-500 mb-1">提醒事項</label>
+                                    <input
+                                        type="text"
+                                        placeholder="例如：每週會議、倒垃圾、搶票"
+                                        value={title}
+                                        onChange={(e) => setTitle(e.target.value)}
+                                        className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                        required
+                                    />
+                                </div>
+
+                                {!isRepeating ? (
+                                    // 單次模式輸入
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-500 mb-1">開始時間</label>
+                                            <input
+                                                type="datetime-local"
+                                                value={startTime}
+                                                onChange={(e) => setStartTime(e.target.value)}
+                                                className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                                required={!isRepeating}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-500 mb-1">結束時間 <span className="text-slate-400">(選填)</span></label>
+                                            <input
+                                                type="datetime-local"
+                                                value={endTime}
+                                                onChange={(e) => setEndTime(e.target.value)}
+                                                className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                            />
+                                        </div>
+                                    </div>
+                                ) : (
+                                    // 重複模式輸入
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-500 mb-1">設定時間 (24小時制)</label>
+                                            <input
+                                                type="time"
+                                                value={repeatTime}
+                                                onChange={(e) => setRepeatTime(e.target.value)}
+                                                className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                required={isRepeating}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-500 mb-2">選擇星期 (可複選)</label>
+                                            <div className="flex justify-between gap-2">
+                                                {weekDays.map((day, idx) => (
+                                                    <button
+                                                        key={idx}
+                                                        type="button"
+                                                        onClick={() => toggleDay(idx)}
+                                                        className={`w-full py-3 rounded-lg text-sm font-bold transition-all ${repeatDays.includes(idx)
+                                                            ? 'bg-indigo-600 text-white shadow-md scale-105'
+                                                            : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                                                            }`}
+                                                    >
+                                                        {day}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <button
+                                    type="submit"
+                                    className={`w-full mt-2 text-white px-6 py-3 rounded-lg font-medium transition-all shadow-lg flex items-center justify-center gap-2 ${isRepeating ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
+                                        }`}
+                                >
+                                    <Plus className="w-5 h-5" />
+                                    {isRepeating ? '加入重複行程' : '加入單次提醒'}
+                                </button>
+                            </form>
+                        </div>
+
+                        {/* 列表區 */}
+                        <div className="space-y-4">
+                            <h2 className="text-xl font-semibold text-slate-700 mb-4">
+                                待辦清單 ({reminders.filter(r => !r.completed || r.type === 'weekly').length})
+                            </h2>
+
+                            {reminders.map((item) => {
+                                const display = getDisplayText(item);
+
+                                return (
+                                    <div
+                                        key={item.id}
+                                        className={`
+                                            relative group flex items-center justify-between p-5 rounded-xl border transition-all duration-300
+                                            ${item.completed && item.type !== 'weekly'
+                                                ? 'bg-slate-50 border-slate-200 opacity-60'
+                                                : display.isUrgent
+                                                    ? 'bg-white border-red-200 shadow-md shadow-red-50 ring-1 ring-red-100'
+                                                    : 'bg-white border-slate-200 shadow-sm hover:shadow-md'
+                                            }
+                                        `}
+                                    >
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-3 mb-1">
+                                                <h3 className={`text-lg font-bold ${item.completed && item.type !== 'weekly' ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
+                                                    {item.title}
+                                                </h3>
+                                                {display.isUrgent && (
+                                                    <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded font-bold animate-pulse">
+                                                        即將開始
+                                                    </span>
+                                                )}
+                                                {item.type === 'weekly' && (
+                                                    <span className="text-xs bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded font-bold">
+                                                        每週重複
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-4 text-sm">
+                                                <span className="text-slate-500">
+                                                    {display.time}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-col items-end gap-2">
+                                            <span className={`font-mono text-xl font-bold ${display.color}`}>
+                                                {display.countdown}
+                                            </span>
+
+                                            <button
+                                                onClick={() => handleDelete(item.id)}
+                                                className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-full transition-colors"
+                                                title="刪除此提醒"
+                                            >
+                                                <Trash2 className="w-5 h-5" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<RemindersApp />);
+    </script>
+</body>
+
+</html>

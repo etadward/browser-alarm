@@ -1,0 +1,38 @@
+# 瀏覽器鬧鐘專案 .gitignore
+
+# 系統暫存檔
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 編輯器設定
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# Node 套件 (如有使用本地 http-server)
+node_modules/
+package-lock.json
+
+# 日誌檔
+*.log
+npm-debug.log*
+
+# 暫存檔
+*.tmp
+*.temp
+*.cache
+
+# 本地設定檔 (可能含有隱私資訊)
+.env
+.env.local
+.env.*.local
+config.local.js
+
+# 作業系統產生的暫存
+*.bak
+*.backup
