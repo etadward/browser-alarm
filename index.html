@@ -130,20 +130,46 @@
                 }
             };
 
-            // 發送通知 (已加入除錯日誌)
+            // Tab 標題閃爍功能
+            const originalTitle = document.title;
+            let flashInterval = null;
+
+            const startTitleFlash = (message) => {
+                if (flashInterval) clearInterval(flashInterval);
+                let isFlashing = false;
+                flashInterval = setInterval(() => {
+                    document.title = isFlashing ? `⏰ ${message}` : originalTitle;
+                    isFlashing = !isFlashing;
+                }, 500);
+
+                // 10 秒後停止閃爍
+                setTimeout(() => {
+                    if (flashInterval) {
+                        clearInterval(flashInterval);
+                        flashInterval = null;
+                        document.title = originalTitle;
+                    }
+                }, 10000);
+            };
+
+            // 發送通知（支援桌面通知 + 頁面警示 + Tab 閃爍）
             const sendNotification = (msg, taskTitle) => {
+                console.log(`%c[提醒觸發] ${msg} - 事項: ${taskTitle}`, 'color: green; font-weight: bold;');
+
+                // 1. Tab 標題閃爍（不需要權限）
+                startTitleFlash(msg);
+
+                // 2. 頁面警示框（不需要權限）
+                setTimeout(() => {
+                    alert(`${msg}\n\n事項：${taskTitle}`);
+                }, 100);
+
+                // 3. 桌面通知（需要權限，若有則發送）
                 if (Notification.permission === 'granted') {
-                    console.log(`%c[通知已觸發] ${msg} - 事項: ${taskTitle}`, 'color: green; font-weight: bold;');
                     new Notification(msg, {
                         body: `事項：${taskTitle}`,
                         requireInteraction: true
                     });
-                } else {
-                    console.log(`%c[通知失敗] 權限非 granted，嘗試發送: ${msg} - 事項: ${taskTitle}`, 'color: red; font-weight: bold;');
-                    // 為了確保使用者知道時間邏輯是正確的，可以在 Console 顯示一個模擬通知
-                    if (window.location.protocol === 'file:') {
-                        console.log(`%c[模擬通知] 時間已到，但通知被阻擋。請檢查 Console 確認時間邏輯正常。`, 'color: #3b82f6; background-color: #bfdbfe; padding: 5px; border-radius: 4px;');
-                    }
                 }
             };
 
