@@ -64,7 +64,7 @@
             const [repeatTime, setRepeatTime] = useState(''); // 重複模式用 (僅時間 HH:mm)
             const [repeatDays, setRepeatDays] = useState([]); // [0, 1, 2...] (0=週日)
 
-            // 讀取資料 + 自動請求通知權限
+            // 讀取資料
             useEffect(() => {
                 const savedData = localStorage.getItem('my-browser-reminders-v2');
                 if (savedData) {
@@ -78,17 +78,9 @@
                     console.warn('%c[啟動警告] 目前使用 "file://" 協定運行本地檔案，這可能會導致桌面通知功能被瀏覽器安全政策阻擋。請改用本地伺服器 (http://) 或將檔案拖曳到瀏覽器分頁列來運行，以確保通知正常彈出。', 'color: orange; font-size: 14px; font-weight: bold;');
                 }
 
-                // 自動請求通知權限（若尚未授權）
-                if ('Notification' in window && Notification.permission === 'default') {
-                    // 延遲 1 秒後請求，讓頁面先完成載入
-                    setTimeout(() => {
-                        Notification.requestPermission().then(result => {
-                            setPermission(result);
-                            if (result === 'granted') {
-                                console.log('%c[通知權限] 已成功啟用桌面通知！', 'color: green; font-weight: bold;');
-                            }
-                        });
-                    }, 1000);
+                // 同步當前權限狀態
+                if ('Notification' in window) {
+                    setPermission(Notification.permission);
                 }
 
             }, []);
