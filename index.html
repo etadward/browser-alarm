@@ -92,19 +92,41 @@
 
             // 請求權限
             const requestPermission = async () => {
-                // 如果已經有權限，不需要再次請求，但確保狀態正確
+                // 檢查 Notification API 是否可用
+                if (!('Notification' in window)) {
+                    alert('您的瀏覽器不支援桌面通知功能。請使用 Chrome、Edge 或 Firefox。');
+                    return;
+                }
+
+                // 如果已經有權限
                 if (Notification.permission === 'granted') {
                     setPermission('granted');
                     new Notification('測試通知', { body: '桌面通知功能已啟用！' });
                     return;
                 }
 
-                const result = await Notification.requestPermission();
-                setPermission(result);
-                if (result === 'granted') {
-                    new Notification('測試通知', { body: '桌面通知功能已啟用！' });
-                } else if (result === 'denied') {
-                    console.error("使用者已拒絕通知權限。");
+                // 如果已被拒絕，引導用戶手動開啟
+                if (Notification.permission === 'denied') {
+                    alert('通知權限已被封鎖。\n\n請按照以下步驟手動開啟：\n1. 點擊網址列左側的「🔒」圖示\n2. 找到「通知」選項\n3. 改為「允許」\n4. 重新整理頁面');
+                    return;
+                }
+
+                // 請求權限
+                try {
+                    const result = await Notification.requestPermission();
+                    setPermission(result);
+
+                    if (result === 'granted') {
+                        new Notification('測試通知', { body: '桌面通知功能已啟用！' });
+                    } else if (result === 'denied') {
+                        alert('您已拒絕通知權限。\n\n若要啟用，請：\n1. 點擊網址列左側的「🔒」圖示\n2. 找到「通知」選項\n3. 改為「允許」\n4. 重新整理頁面');
+                    } else {
+                        // 權限仍為 default，可能是用戶關閉了對話框
+                        alert('未偵測到權限變更。\n\n若瀏覽器沒有彈出授權對話框，請：\n1. 點擊網址列左側的「🔒」圖示\n2. 找到「通知」選項\n3. 改為「允許」\n4. 重新整理頁面');
+                    }
+                } catch (error) {
+                    console.error('請求通知權限時發生錯誤:', error);
+                    alert('請求通知權限時發生錯誤。\n\n請嘗試：\n1. 重新整理頁面\n2. 使用 Chrome 或 Edge 瀏覽器');
                 }
             };
 
